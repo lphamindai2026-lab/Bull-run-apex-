@@ -1,0 +1,212 @@
+@import "tailwindcss";
+
+/* ================================================================
+   BULL RUN APEX AI — GLOBAL DESIGN SYSTEM v5.0
+   Founded by Himanshu Bhmniya
+   Optimized for Core Web Vitals: LCP, FID, CLS
+   ================================================================ */
+
+/* ── CSS Custom Properties ───────────────────────────────────── */
+:root {
+  --apex-bg:        #03060d;
+  --apex-surface:   #070c18;
+  --apex-border:    #1a2035;
+  --apex-emerald:   #10b981;
+  --apex-cyan:      #06b6d4;
+  --apex-purple:    #8b5cf6;
+  --apex-gold:      #f59e0b;
+  --apex-rose:      #f43f5e;
+
+  /* Font display — prevents CLS (Cumulative Layout Shift) */
+  font-display: swap;
+}
+
+/* ── Base Reset ──────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  /* Prevent text resize causing CLS on mobile */
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+html {
+  scroll-behavior: smooth;
+  /* Prevent layout shift from scrollbar appearing */
+  scrollbar-gutter: stable;
+}
+
+body {
+  background-color: var(--apex-bg);
+  color: #e2e8f0;
+  /* System font stack — zero CLS, instant render, no FOUT */
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Prevent horizontal overflow CLS */
+  overflow-x: hidden;
+  /* Improve paint performance */
+  contain: layout style;
+}
+
+/* ── Scrollbars ──────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #1e2d45; border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: #2d4166; }
+
+.scrollbar-thin  { scrollbar-width: thin;  scrollbar-color: #1e2d45 transparent; }
+.scrollbar-none  { scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
+/* ── Selection ───────────────────────────────────────────────── */
+::selection { background-color: rgba(16,185,129,0.25); color: #6ee7b7; }
+
+/* ── Typography — prevent FOUT/CLS ──────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: bold;
+  line-height: 1.1;
+  /* Reserve space to prevent CLS */
+  text-wrap: balance;
+}
+
+p { text-wrap: pretty; }
+
+/* ── Gradient Text ───────────────────────────────────────────── */
+.gradient-text {
+  background: linear-gradient(135deg, #10b981 0%, #06b6d4 50%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  /* Prevent CLS by defining explicit height/display */
+  display: inline;
+}
+
+/* ── Glassmorphism card ──────────────────────────────────────── */
+.glass {
+  background: rgba(7, 12, 24, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(26, 32, 53, 0.8);
+}
+
+/* ── Glow utilities ──────────────────────────────────────────── */
+.glow-emerald { box-shadow: 0 0 20px rgba(16,185,129,0.2); }
+.glow-cyan    { box-shadow: 0 0 20px rgba(6,182,212,0.2);  }
+.glow-purple  { box-shadow: 0 0 20px rgba(139,92,246,0.2); }
+
+/* ── Animations — use transform/opacity only (GPU composited) ── */
+@keyframes pulseDot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%       { transform: scale(1.5); opacity: 0.5; }
+}
+
+@keyframes scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+@keyframes borderGlow {
+  0%, 100% { border-color: rgba(16,185,129,0.3); }
+  50%       { border-color: rgba(6,182,212,0.3);  }
+}
+
+@keyframes priceTick {
+  0%   { color: inherit; }
+  50%  { color: #10b981; }
+  100% { color: inherit; }
+}
+
+/* ── Utility classes ─────────────────────────────────────────── */
+.pulse-dot          { animation: pulseDot 2s ease-in-out infinite; }
+.fade-in-up         { animation: fadeInUp 0.4s ease-out forwards; }
+.border-animated    { animation: borderGlow 3s ease-in-out infinite; }
+.price-tick         { animation: priceTick 0.6s ease-in-out; }
+.tabular-nums       { font-variant-numeric: tabular-nums; }
+
+/* Skeleton loading — CLS-safe (reserves space) */
+.skeleton {
+  background: linear-gradient(90deg,
+    rgba(30,45,69,0.5) 25%,
+    rgba(45,65,100,0.5) 50%,
+    rgba(30,45,69,0.5) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 0.5rem;
+}
+
+/* ── Navigation active indicator ────────────────────────────── */
+.nav-active {
+  position: relative;
+}
+.nav-active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px; left: 50%;
+  transform: translateX(-50%);
+  width: 60%; height: 2px;
+  background: linear-gradient(90deg, #10b981, #06b6d4);
+  border-radius: 9999px;
+}
+
+/* ── Terminal cursor blink ───────────────────────────────────── */
+@keyframes termBlink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.cursor-blink::after {
+  content: '▋';
+  animation: termBlink 1s step-end infinite;
+  color: #10b981;
+  margin-left: 1px;
+}
+
+/* ── Performance: Reduce motion for accessibility ────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Focus styles — accessibility (WCAG 2.1 AA) ─────────────── */
+:focus-visible {
+  outline: 2px solid #10b981;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Images — prevent CLS ────────────────────────────────────── */
+img, video, canvas, svg {
+  max-width: 100%;
+  height: auto;
+  /* Prevent layout shift */
+  display: block;
+}
+
+/* ── Links — accessibility ───────────────────────────────────── */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+a:hover { text-decoration: none; }
+
+/* ── Print styles ────────────────────────────────────────────── */
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; color: black; }
+  a::after { content: " (" attr(href) ")"; }
+}
