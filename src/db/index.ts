@@ -1,82 +1,71 @@
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+import { Pool }   from "pg";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DATABASE CONNECTION — RUNTIME ONLY
+// DATABASE CONNECTION — LAZY + SSL-READY
 //
-// ROOT CAUSE OF BUILD FAILURE:
-//   The original file threw `throw new Error("DATABASE_URL is required")`
-//   at module evaluation time (top-level). Next.js imports every module
-//   during `next build` to collect page config and metadata — even for
-//   dynamic pages. This caused the build to fail when DATABASE_URL is
-//   not set in the build environment (e.g. Vercel build step).
-//
-// FIX:
-//   Use a lazy getter. The Pool and db client are only created when
-//   `db` is first accessed — which happens at request time (API routes,
-//   server actions, server components rendering), never during the build.
-//
-// RESULT:
-//   - `next build` succeeds without DATABASE_URL
-//   - At runtime (on Vercel, in production), DATABASE_URL must be set
-//     in environment variables — otherwise the first DB call throws a
-//     clear, descriptive error instead of crashing the build process.
+// Key behaviours:
+//  1. Lazy initialization — no DB code runs at build time (fixes Next.js build)
+//  2. SSL enabled for Supabase — required for all Supabase PostgreSQL connections
+//  3. Singleton pool — one pool reused across all requests in a serverless function
+//  4. Graceful error — clear message if DATABASE_URL not set in Vercel env vars
 // ─────────────────────────────────────────────────────────────────────────────
 
 const globalForDb = globalThis as typeof globalThis & {
-  __apexDbPool?: Pool;
-  __apexDb?: ReturnType<typeof drizzle>;
+  __apexPool?: Pool;
+  __apexDb?:   ReturnType<typeof drizzle>;
 };
 
-function getPool(): Pool {
-  if (globalForDb.__apexDbPool) {
-    return globalForDb.__apexDbPool;
-  }
+function createPool(): Pool {
+  const url = process.env.DATABASE_URL;
 
-  const databaseUrl = process.env.DATABASE_URL;
-
-  if (!databaseUrl) {
-    // This error only fires at RUNTIME when a database query is made.
-    // It will NOT fire during `next build`.
+  if (!url) {
     throw new Error(
-      "DATABASE_URL environment variable is not set. " +
-      "Add it to your Vercel project: Settings → Environment Variables → DATABASE_URL"
+      "DATABASE_URL is not set.\n" +
+      "→ Vercel: Project Settings → Environment Variables → Add DATABASE_URL\n" +
+      "→ Value:  postgresql://postgres:[password]@db.ftebjjgbtwpfwyyelvei.supabase.co:5432/postgres"
     );
   }
 
-  const pool = new Pool({ connectionString: databaseUrl });
+  // Detect Supabase / any external PostgreSQL host — always enable SSL
+  // ssl.rejectUnauthorized = false is required for Supabase connections
+  // from serverless environments (Vercel) which don't have the CA cert bundled
+  const isSupabase = url.includes('supabase.co') || url.includes('supabase.com');
+  const isExternal = !url.includes('localhost') && !url.includes('127.0.0.1');
 
-  // Cache in global to reuse across hot-reloads in development
-  if (process.env.NODE_ENV !== "production") {
-    globalForDb.__apexDbPool = pool;
+  return new Pool({
+    connectionString: url,
+    ssl: (isSupabase || isExternal)
+      ? { rejectUnauthorized: false }
+      : false,
+    // Serverless-friendly pool settings
+    max:              10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+  });
+}
+
+function getPool(): Pool {
+  if (!globalForDb.__apexPool) {
+    globalForDb.__apexPool = createPool();
   }
-
-  return pool;
+  return globalForDb.__apexPool;
 }
 
 function getDb(): ReturnType<typeof drizzle> {
-  if (globalForDb.__apexDb) {
-    return globalForDb.__apexDb;
+  if (!globalForDb.__apexDb) {
+    globalForDb.__apexDb = drizzle(getPool());
   }
-
-  const client = drizzle(getPool());
-
-  if (process.env.NODE_ENV !== "production") {
-    globalForDb.__apexDb = client;
-  }
-
-  return client;
+  return globalForDb.__apexDb;
 }
 
-// Export a Proxy so that `db.select()`, `db.insert()`, etc.
-// are intercepted and the real client is only created on first use.
+// Proxy: the real pool and db are only instantiated on first actual use
 export const db = new Proxy({} as ReturnType<typeof drizzle>, {
   get(_target, prop) {
     return (getDb() as any)[prop];
   },
 });
 
-// Also export pool for direct use if needed
 export const pool = new Proxy({} as Pool, {
   get(_target, prop) {
     return (getPool() as any)[prop];

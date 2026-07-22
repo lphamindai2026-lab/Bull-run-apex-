@@ -1,24 +1,35 @@
 import { cookies } from 'next/headers';
-import { db } from '@/db';
-import { users } from '@/db/schema';
-import { eq } from 'drizzle-orm';
-import crypto from 'crypto';
+import { db }      from '@/db';
+import { users }   from '@/db/schema';
+import { eq }      from 'drizzle-orm';
+import crypto      from 'crypto';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AUTH LIBRARY — RUNTIME ONLY
+// CRITICAL: These values MUST match between Vercel env vars and local .env
 //
-// All functions in this file only execute at REQUEST time, never at build time.
-// The `db` import is safe because db/index.ts now uses lazy initialization.
+// If PASSWORD_SALT changes after users have registered, their stored password
+// hashes will not match and login will fail for ALL existing users.
+//
+// SESSION_SECRET must also be consistent — changing it invalidates all cookies.
+//
+// Production values (set identically in Vercel → Settings → Env Vars):
+//   PASSWORD_SALT  = himanshu510@
+//   SESSION_SECRET = hQ8xL2mP9vR4zN7aK1sW5eF8tY3uJ6cD0qB2gH9mX4pL7nV1rT5yU8iO3
 // ─────────────────────────────────────────────────────────────────────────────
 
-const HMAC_SECRET = process.env.SESSION_SECRET || 'apex_jwt_secret_key_2026';
-const SALT        = process.env.PASSWORD_SALT  || 'bull_run_apex_ai_salt_2026';
-const COOKIE_NAME = 'apex_session_token';
+// Read from environment — MUST be set in Vercel for production
+const PASSWORD_SALT  = process.env.PASSWORD_SALT  || 'himanshu510@';
+const SESSION_SECRET = process.env.SESSION_SECRET || 'hQ8xL2mP9vR4zN7aK1sW5eF8tY3uJ6cD0qB2gH9mX4pL7nV1rT5yU8iO3';
+const COOKIE_NAME    = 'apex_session_token';
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 
-/** Hash a password with PBKDF2 + salt */
+/**
+ * Hash a password using PBKDF2-SHA512.
+ * Uses PASSWORD_SALT from environment — must be identical in Vercel env vars.
+ */
 export function hashPassword(password: string): string {
   return crypto
-    .pbkdf2Sync(password, SALT, 1000, 64, 'sha512')
+    .pbkdf2Sync(password, PASSWORD_SALT, 1000, 64, 'sha512')
     .toString('hex');
 }
 
@@ -37,43 +48,37 @@ export interface UserSession {
 }
 
 /**
- * Get the currently authenticated user from the HTTP-only session cookie.
- * Returns null if:
- *   - No cookie is present (not logged in)
- *   - Cookie signature is invalid (tampered)
- *   - User no longer exists in DB
- *   - DATABASE_URL is not set (build time or misconfigured environment)
+ * Read the session cookie, verify the HMAC signature, and return the user.
+ * Returns null on any error — never throws.
  */
 export async function getCurrentUser(): Promise<UserSession | null> {
   try {
-    const cookieStore = await cookies();
-    const sessionToken = cookieStore.get(COOKIE_NAME)?.value;
-
+    const cookieStore    = await cookies();
+    const sessionToken   = cookieStore.get(COOKIE_NAME)?.value;
     if (!sessionToken) return null;
 
-    const [userIdStr, signature] = sessionToken.split('.');
-    if (!userIdStr || !signature) return null;
+    const dotIdx = sessionToken.lastIndexOf('.');
+    if (dotIdx === -1) return null;
 
-    // Verify HMAC signature
+    const userIdStr  = sessionToken.slice(0, dotIdx);
+    const signature  = sessionToken.slice(dotIdx + 1);
+
     const expectedSig = crypto
-      .createHmac('sha256', HMAC_SECRET)
+      .createHmac('sha256', SESSION_SECRET)
       .update(userIdStr)
       .digest('hex');
 
-    if (signature !== expectedSig) return null;
+    if (!crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expectedSig, 'hex'))) {
+      return null;
+    }
 
     const userId = parseInt(userIdStr, 10);
-    if (isNaN(userId)) return null;
+    if (isNaN(userId) || userId <= 0) return null;
 
-    const results = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
+    const rows = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (rows.length === 0) return null;
 
-    if (results.length === 0) return null;
-
-    const u = results[0];
+    const u = rows[0];
     return {
       id:                 u.id,
       name:               u.name,
@@ -87,40 +92,30 @@ export async function getCurrentUser(): Promise<UserSession | null> {
       referredBy:         u.referredBy,
       createdAt:          u.createdAt,
     };
-  } catch (error: any) {
-    // Gracefully return null on any error:
-    //   - DB not connected yet
-    //   - Cookie API unavailable (should not happen at runtime)
-    //   - Any network/query error
-    // This prevents auth errors from crashing pages — they just show as "not logged in"
-    if (process.env.NODE_ENV === 'development') {
-      console.error('[auth] getCurrentUser error:', error.message);
-    }
+  } catch {
     return null;
   }
 }
 
-/** Set the session cookie after successful login */
+/** Create a signed session cookie for the given user ID */
 export async function setSessionCookie(userId: number): Promise<void> {
-  const userIdStr  = userId.toString();
-  const signature  = crypto
-    .createHmac('sha256', HMAC_SECRET)
+  const userIdStr = String(userId);
+  const signature = crypto
+    .createHmac('sha256', SESSION_SECRET)
     .update(userIdStr)
     .digest('hex');
 
-  const sessionToken = `${userIdStr}.${signature}`;
-  const cookieStore  = await cookies();
-
-  cookieStore.set(COOKIE_NAME, sessionToken, {
+  const cookieStore = await cookies();
+  cookieStore.set(COOKIE_NAME, `${userIdStr}.${signature}`, {
     httpOnly:  true,
     secure:    process.env.NODE_ENV === 'production',
     sameSite:  'lax',
-    maxAge:    60 * 60 * 24 * 7, // 7 days
+    maxAge:    COOKIE_MAX_AGE,
     path:      '/',
   });
 }
 
-/** Clear the session cookie on logout */
+/** Delete the session cookie on logout */
 export async function clearSessionCookie(): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.delete(COOKIE_NAME);
