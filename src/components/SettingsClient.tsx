@@ -13,6 +13,7 @@ import {
   updateProfileAction,
   updateBalanceAction,
   updateNotificationsAction,
+  changePasswordAction,
 } from '@/app/actions';
 import FounderPhoto from '@/components/FounderPhoto';
 
@@ -103,6 +104,51 @@ export default function SettingsClient({ user }: Props) {
     navigator.clipboard.writeText(user.affiliateCode ?? 'APEX-DEMO');
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // ── Password change state ──
+  const [currentPw,  setCurrentPw]  = useState('');
+  const [newPw,      setNewPw]      = useState('');
+  const [confirmPw,  setConfirmPw]  = useState('');
+  const [showCurPw,  setShowCurPw]  = useState(false);
+  const [showNewPw,  setShowNewPw]  = useState(false);
+  const [pwStrength, setPwStrength] = useState(0);
+
+  // Live password strength meter
+  const checkStrength = (pw: string) => {
+    let score = 0;
+    if (pw.length >= 8)  score++;
+    if (pw.length >= 12) score++;
+    if (/[A-Z]/.test(pw))    score++;
+    if (/[0-9]/.test(pw))    score++;
+    if (/[^A-Za-z0-9]/.test(pw)) score++;
+    setPwStrength(score);
+    setNewPw(pw);
+  };
+
+  const handleChangePassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentPw || !newPw || !confirmPw) {
+      show('error', 'Please fill in all three password fields.');
+      return;
+    }
+    if (newPw !== confirmPw) {
+      show('error', 'New password and confirm password do not match.');
+      return;
+    }
+    if (newPw.length < 8) {
+      show('error', 'Password must be at least 8 characters long.');
+      return;
+    }
+    startTx(async () => {
+      const res = await changePasswordAction(currentPw, newPw, confirmPw) as any;
+      if (res.success) {
+        show('success', '✅ ' + res.message);
+        setCurrentPw(''); setNewPw(''); setConfirmPw(''); setPwStrength(0);
+      } else {
+        show('error', res.error || 'Password change failed.');
+      }
+    });
   };
 
   const Section = ({ children }: {children:React.ReactNode}) => (
@@ -364,21 +410,133 @@ export default function SettingsClient({ user }: Props) {
               </div>
             </Card>
 
-            <Card title="Password" desc="Change your account password.">
-              <div className="space-y-3">
+            <Card title="Change Password" desc="Update your account password. Use at least 8 characters with a mix of letters, numbers and symbols.">
+              <form onSubmit={handleChangePassword} className="space-y-4">
+
+                {/* Current password */}
                 <Field label="Current Password">
-                  <input type="password" placeholder="••••••••" className={inputCls} />
+                  <div className="relative">
+                    <input
+                      type={showCurPw ? 'text' : 'password'}
+                      value={currentPw}
+                      onChange={e => setCurrentPw(e.target.value)}
+                      placeholder="Enter your current password"
+                      autoComplete="current-password"
+                      required
+                      className={`${inputCls} pr-10`}
+                    />
+                    <button type="button" onClick={() => setShowCurPw(s => !s)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors">
+                      {showCurPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </Field>
+
+                {/* New password with strength meter */}
                 <Field label="New Password">
-                  <input type="password" placeholder="••••••••" className={inputCls} />
+                  <div className="relative">
+                    <input
+                      type={showNewPw ? 'text' : 'password'}
+                      value={newPw}
+                      onChange={e => checkStrength(e.target.value)}
+                      placeholder="At least 8 characters"
+                      autoComplete="new-password"
+                      required
+                      minLength={8}
+                      className={`${inputCls} pr-10`}
+                    />
+                    <button type="button" onClick={() => setShowNewPw(s => !s)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors">
+                      {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+
+                  {/* Strength meter — only shows when user has typed */}
+                  {newPw.length > 0 && (
+                    <div className="mt-2 space-y-1.5">
+                      <div className="flex gap-1">
+                        {[1,2,3,4,5].map(i => (
+                          <div key={i} className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+                            i <= pwStrength
+                              ? pwStrength <= 2 ? 'bg-rose-500'
+                              : pwStrength <= 3 ? 'bg-amber-500'
+                              : 'bg-emerald-500'
+                              : 'bg-slate-800'
+                          }`} />
+                        ))}
+                      </div>
+                      <p className={`text-[10px] font-mono font-bold ${
+                        pwStrength <= 2 ? 'text-rose-400'
+                        : pwStrength <= 3 ? 'text-amber-400'
+                        : 'text-emerald-400'
+                      }`}>
+                        {pwStrength <= 1 ? '⚠ Very weak — add uppercase, numbers & symbols'
+                        : pwStrength === 2 ? '⚠ Weak — try adding numbers and symbols'
+                        : pwStrength === 3 ? '◑ Moderate — good, could be stronger'
+                        : pwStrength === 4 ? '✓ Strong password'
+                        : '✓✓ Very strong password'}
+                      </p>
+                    </div>
+                  )}
                 </Field>
+
+                {/* Confirm new password */}
                 <Field label="Confirm New Password">
-                  <input type="password" placeholder="••••••••" className={inputCls} />
+                  <input
+                    type="password"
+                    value={confirmPw}
+                    onChange={e => setConfirmPw(e.target.value)}
+                    placeholder="Re-enter your new password"
+                    autoComplete="new-password"
+                    required
+                    className={`${inputCls} ${
+                      confirmPw.length > 0
+                        ? confirmPw === newPw
+                          ? 'border-emerald-500/50 focus:border-emerald-500/70'
+                          : 'border-rose-500/50 focus:border-rose-500/70'
+                        : ''
+                    }`}
+                  />
+                  {confirmPw.length > 0 && (
+                    <p className={`text-[10px] mt-1 font-mono ${confirmPw === newPw ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {confirmPw === newPw ? '✓ Passwords match' : '✗ Passwords do not match'}
+                    </p>
+                  )}
                 </Field>
-                <button className="rounded-xl bg-slate-800 hover:bg-slate-700 px-5 py-2.5 text-sm font-bold text-white transition-all border border-[var(--apex-border)]">
-                  Change Password
+
+                {/* Requirements checklist */}
+                <div className="rounded-xl border border-[var(--apex-border)] bg-slate-950/40 p-3 space-y-1.5">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Password Requirements</p>
+                  {[
+                    { label: 'At least 8 characters',               met: newPw.length >= 8 },
+                    { label: 'Contains uppercase letter (A–Z)',      met: /[A-Z]/.test(newPw) },
+                    { label: 'Contains number (0–9)',                met: /[0-9]/.test(newPw) },
+                    { label: 'Contains symbol (!@#$%...)',           met: /[^A-Za-z0-9]/.test(newPw) },
+                    { label: 'Different from current password',      met: newPw.length > 0 && newPw !== currentPw },
+                  ].map(req => (
+                    <div key={req.label} className="flex items-center gap-2">
+                      <span className={`text-[11px] ${req.met ? 'text-emerald-400' : 'text-slate-600'}`}>
+                        {req.met ? '✓' : '○'}
+                      </span>
+                      <span className={`text-[11px] ${req.met ? 'text-slate-300' : 'text-slate-600'}`}>
+                        {req.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isPending || newPw.length < 8 || newPw !== confirmPw || !currentPw}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed px-5 py-3 text-sm font-bold text-[#03060d] transition-all"
+                >
+                  {isPending ? (
+                    <><RefreshCw className="h-4 w-4 animate-spin" /> Updating Password…</>
+                  ) : (
+                    <><Key className="h-4 w-4" /> Change Password</>
+                  )}
                 </button>
-              </div>
+              </form>
             </Card>
           </Section>
         )}

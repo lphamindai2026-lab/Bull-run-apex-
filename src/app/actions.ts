@@ -562,6 +562,50 @@ export async function updateNotificationsAction(email: boolean, telegram: boolea
   return { success: true };
 }
 
+export async function changePasswordAction(
+  currentPassword: string,
+  newPassword: string,
+  confirmPassword: string
+) {
+  const user = await getCurrentUser();
+  if (!user) return { success: false, error: 'You must be logged in to change your password.' };
+
+  // Validate inputs
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    return { success: false, error: 'All three password fields are required.' };
+  }
+  if (newPassword !== confirmPassword) {
+    return { success: false, error: 'New password and confirm password do not match.' };
+  }
+  if (newPassword.length < 8) {
+    return { success: false, error: 'New password must be at least 8 characters long.' };
+  }
+  if (newPassword === currentPassword) {
+    return { success: false, error: 'New password must be different from your current password.' };
+  }
+
+  // Fetch user record with stored hash
+  const rows = await db.select().from(users).where(eq(users.id, user.id)).limit(1);
+  if (rows.length === 0) return { success: false, error: 'Account not found.' };
+
+  const storedHash = rows[0].passwordHash;
+
+  // Verify current password
+  if (storedHash !== hashPassword(currentPassword)) {
+    return { success: false, error: 'Current password is incorrect.' };
+  }
+
+  // Hash new password and save
+  const newHash = hashPassword(newPassword);
+  await db.update(users)
+    .set({ passwordHash: newHash, updatedAt: new Date() })
+    .where(eq(users.id, user.id));
+
+  await logSystemAction(user.id, 'PASSWORD_CHANGE', 'User changed their password successfully');
+  revalidatePath('/settings');
+  return { success: true, message: 'Password changed successfully. Use your new password next time you log in.' };
+}
+
 export async function submitFeedbackAction(type: string, subject: string, message: string, rating?: number) {
   const user = await getCurrentUser();
   if (!user) return { success: false, error: 'Unauthorized' };
